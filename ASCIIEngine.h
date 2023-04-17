@@ -43,9 +43,10 @@ enum STYLE {
 };
 
 struct ScreenChar {
+    //    ScreenChar(char ch): c(ch) {};
+    char c{};
     COLOR fgColor = NONE, bgColor = NONE;
     STYLE style = SNONE;
-    char c{};
 
 };
 
@@ -57,7 +58,7 @@ namespace aen {
         std::string m_profileID, m_appName;
         std::atomic<bool> m_bAtomRunning{};
         int m_width{},m_height{};
-
+    
     public:
         ASCIIEngine() = default;
         ~ASCIIEngine(){
@@ -78,12 +79,12 @@ namespace aen {
                 if (fontSize*width > screenSize[0]) m_width = screenSize[0]/(fontSize);
                 if (2*fontSize*height > screenSize[1]) m_height = screenSize[1]/(2*fontSize);
             }
-
+            
             m_profileID = profileID;
             m_appName = appName;
 
             m_screenBuffer.resize(m_height);
-            for (auto& line: m_screenBuffer){
+            for (auto& line: m_screenBuffer){ 
                 line.resize(m_width);
                 for (auto& sc: line)
                     sc.c = ' ';
@@ -104,9 +105,9 @@ namespace aen {
                 m_screenBuffer[y][x].style = style;
             }
         }
-
+        
         void Fill(int x0, int y0,int x1,int y1, COLOR bgColor = NONE){
-            Clip(x0, y0);
+            Clip(x0, y0); 
             Clip(x1, y1);
             for (int i = y0; i < y1; i++)
                 for (int j = x0; j < x1; j++){
@@ -114,7 +115,7 @@ namespace aen {
                     m_screenBuffer[i][j].bgColor = bgColor;
                 }
         }
-
+        
         void FillScreen(COLOR bgColor = NONE){
             for (int i = 0; i < m_height; i++)
                 for (int j = 0; j < m_width; j++){
@@ -122,8 +123,8 @@ namespace aen {
                     m_screenBuffer[i][j].bgColor = bgColor;
                 }
         }
-
-        void DrawString(int x, int y, std::string s, COLOR fgColor = NONE, COLOR bgColor = NONE){
+        
+        void DrawString(int x, int y, const std::string& s, COLOR fgColor = NONE, COLOR bgColor = NONE){
             for (int i = 0; i < int(s.length()); i++){
                 int nx = x + i;
                 Clip(nx, y);
@@ -137,8 +138,8 @@ namespace aen {
 
             t.join();
         }
-
-
+        
+        
     private:
         void Clip(int& x, int& y) const{
             if (x < 0) x = 0;
@@ -146,14 +147,14 @@ namespace aen {
             if (y < 0) y = 0;
             if (y >= m_height) y = m_height;
         }
-
+        
         static void MoveCursor(int row, int col){
             std::cout << "\033[" << row << ";" << col << "H";
         }
 
         void SetFontSize(int fontSize){
-            std::string s = "gsettings set org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:" + m_profileID +
-                            "/ font 'Monospace Regular " + std::to_string(fontSize) + "'";
+            std::string s = "gsettings set org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:" + m_profileID + 
+            "/ font 'Monospace Regular " + std::to_string(fontSize) + "'";
             system(s.c_str());
         }
 
@@ -171,7 +172,7 @@ namespace aen {
             MoveCursor(1, 1);
         }
 
-
+        
         void GameThread(){
             if (!OnCreate()) m_bAtomRunning = false;
 
@@ -197,66 +198,66 @@ namespace aen {
             OnDestroy();
         }
 
+        
+    static void TerminalReset(){
+        tcsetattr(0, TCSANOW, &ORIGINAL_TERMIOS);
 
-        static void TerminalReset(){
-            tcsetattr(0, TCSANOW, &ORIGINAL_TERMIOS);
+    }
 
+    static void TerminalSetRaw(){
+        struct termios newTermios{};
+
+        tcgetattr(0, &ORIGINAL_TERMIOS);
+        memcpy(&newTermios, &ORIGINAL_TERMIOS, sizeof(newTermios));
+
+        atexit(TerminalReset);
+        cfmakeraw(&newTermios);
+        tcsetattr(0, TCSANOW, &newTermios);
+    }
+
+    static char GetKey(){
+        TerminalSetRaw();
+        struct timeval tv = { 0L, 0L };
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(0, &fds);
+        char cs[5];
+        cs[0] = '\0';
+        size_t r = 1;
+
+        if (select(1, &fds, nullptr, nullptr, &tv) > 0)
+            r = read(0, &cs, sizeof(cs));
+
+        TerminalReset();
+        return cs[r - 1];
+    }
+
+    static bool GetScreenSize(unsigned short size[2]) {
+        char *array[8];
+        char screenSize[64];
+        char* token;
+
+        FILE *cmd = popen("xdpyinfo | awk '/dimensions/ {print $2}'", "r");
+
+        if (!cmd)
+            return false;
+
+        while (fgets(screenSize, sizeof(screenSize), cmd) != nullptr);
+        pclose(cmd);
+
+        token = strtok(screenSize, "x\n");
+
+        if (!token)
+            return false;
+        for (unsigned short i = 0; token != nullptr; ++i) {
+            array[i] = token;
+            token = strtok(nullptr, "x\n");
         }
+        size[0] = strtol(array[0], nullptr, 10);
+        size[1] = strtol(array[1], nullptr, 10);
 
-        static void TerminalSetRaw(){
-            struct termios newTermios{};
-
-            tcgetattr(0, &ORIGINAL_TERMIOS);
-            memcpy(&newTermios, &ORIGINAL_TERMIOS, sizeof(newTermios));
-
-            atexit(TerminalReset);
-            cfmakeraw(&newTermios);
-            tcsetattr(0, TCSANOW, &newTermios);
-        }
-
-        static char GetKey(){
-            TerminalSetRaw();
-            struct timeval tv = { 0L, 0L };
-            fd_set fds;
-            FD_ZERO(&fds);
-            FD_SET(0, &fds);
-            char cs[5];
-            cs[0] = '\0';
-            size_t r = 1;
-
-            if (select(1, &fds, nullptr, nullptr, &tv) > 0)
-                r = read(0, &cs, sizeof(cs));
-
-            TerminalReset();
-            return cs[r - 1];
-        }
-
-        static bool GetScreenSize(unsigned short size[2]) {
-            char *array[8];
-            char screenSize[64];
-            char* token;
-
-            FILE *cmd = popen("xdpyinfo | awk '/dimensions/ {print $2}'", "r");
-
-            if (!cmd)
-                return false;
-
-            while (fgets(screenSize, sizeof(screenSize), cmd) != nullptr);
-            pclose(cmd);
-
-            token = strtok(screenSize, "x\n");
-
-            if (!token)
-                return false;
-            for (unsigned short i = 0; token != nullptr; ++i) {
-                array[i] = token;
-                token = strtok(nullptr, "x\n");
-            }
-            size[0] = strtol(array[0], nullptr, 10);
-            size[1] = strtol(array[1], nullptr, 10);
-
-            return true;
-        }
+        return true;
+    }
 
     public:
         virtual bool GameLoop(float fDelta, char cKey) = 0;
@@ -268,6 +269,6 @@ namespace aen {
         void setAppName(std::string name){ m_appName = std::move(name); }
     };
 
-
+    
 }
 
