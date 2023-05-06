@@ -3,11 +3,6 @@
 #include <random>
 #include <forward_list>
 
-class charList {
-
-};
-
-
 class SearchInsertDeleteDemo: public aen::ASCIIEngine {
     std::forward_list<ScreenChar> list;
 
@@ -15,8 +10,8 @@ class SearchInsertDeleteDemo: public aen::ASCIIEngine {
 protected:
 
     void DrawList(){
-        int x = 2;
-        int y = 2;
+        int x = 5;
+        int y = 5;
 
         int state = 0, prevState = 0;
 
@@ -85,7 +80,6 @@ protected:
         return true;
     }
 
-
     bool GameLoop(float fDelta, char cKey) override{
         FillScreen();
 
@@ -96,7 +90,7 @@ protected:
 //                break;
             case 'l':
                 break;
-           case 'q':
+           case 27:
                 return false;
             default:
                 break;

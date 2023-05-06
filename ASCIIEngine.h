@@ -262,7 +262,7 @@ namespace aen {
     public:
         virtual bool GameLoop(float fDelta, char cKey) = 0;
         virtual bool OnCreate() = 0;
-        virtual bool OnDestroy() {return true; };
+        virtual bool OnDestroy() { return true; };
 
         [[nodiscard]] int getGameWidth() const{ return m_width; }
         [[nodiscard]] int getGameHeight() const{ return m_height; }
