@@ -14,7 +14,7 @@ public:
     LightSwitch();
     ~LightSwitch();
 
-    void lock(sem_t semaphore);
-    void unlock(sem_t semaphore);
+    void lock(sem_t* semaphore);
+    void unlock(sem_t* semaphore);
 };
 

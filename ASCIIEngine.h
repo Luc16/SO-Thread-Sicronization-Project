@@ -1,3 +1,6 @@
+#ifndef ASCII_ENGINE_H
+#define ASCII_ENGINE_H
+
 #include <utility>
 #include <vector>
 #include <thread>
@@ -271,4 +274,6 @@ namespace aen {
 
     
 }
+
+#endif //ASCII_ENGINE_H
 
