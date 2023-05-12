@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include "lightswitch.h"
 
-#define THREAD_FRAME_TIME 30000
+#define THREAD_FRAME_TIME 20000//30000
 
 struct ScreenCharList {
     ScreenChar schar{};
@@ -22,8 +22,11 @@ struct ThreadObject {
     MovingChar mvChar;
     char c{};
     int width{}, height{};
+    int* count{};
+    pthread_mutex_t* countMutex{};
     ScreenCharList** list{};
     ThreadObject* next{};
+    ThreadObject* prev{};
 };
 
 struct SearchThreadInfo: public ThreadObject{
@@ -33,7 +36,7 @@ struct SearchThreadInfo: public ThreadObject{
 };
 
 struct InsertThreadInfo: public ThreadObject {
-    LightSwitch* inserterSwitch{};
+//    LightSwitch* inserterSwitch{};
     sem_t* noInserter{};
     sem_t* noDeleter{};
     pthread_mutex_t* mutex{};
@@ -55,9 +58,11 @@ inline int randomInt(int min, int max) {
 }
 
 void traverseList(MovingChar* mvChar, ScreenCharList** list, char charToFind, int width, const std::function<void(ScreenCharList*, ScreenCharList*)>& handle) {
+    int count = 0, listCount = 0;
     int state = 0, prevState = 0;
     ScreenCharList* prev = nullptr;
-    for (ScreenCharList* current = *list; current != nullptr; current = current->next) {
+    for (ScreenCharList* current = *list; current != nullptr;) {
+        count++;
         auto& schar = current->schar;
         if (schar.c == charToFind) {
             handle(current, prev);
@@ -101,16 +106,52 @@ void traverseList(MovingChar* mvChar, ScreenCharList** list, char charToFind, in
             default:
                 break;
         }
-        prev = current;
+        listCount = 1;
+        for (ScreenCharList* cur = *list; cur != current; cur = cur->next) listCount++;
+        if (listCount == count) {
+            prev = current;
+            current = current->next;
+        }
+
     }
+}
+
+void moveCharInThread(MovingChar* mvChar, int x, int y){
+    int add = (y > 0) ? 1 : -1;
+    for (int i = 0; i < add*y; i++) {
+        mvChar->y += add;
+        usleep(THREAD_FRAME_TIME);
+    }
+    add = (x > 0) ? 1 : -1;
+    for (int i = 0; i < add*x; i++) {
+        mvChar->x += add;
+        usleep(THREAD_FRAME_TIME);
+    }
+}
+
+void moveLine(ThreadObject* obj, int x, int y) {
+    pthread_mutex_lock(obj->countMutex);
+
+    moveCharInThread(&obj->mvChar, x, y);
+
+    for (ThreadObject* cur = obj->prev; cur != nullptr; cur = cur->prev){
+        cur->mvChar.y--;
+    }
+
+    (*obj->count)--;
+    pthread_mutex_unlock(obj->countMutex);
 }
 
 void* searcher_thread(void* threadInfo) {
     auto* searcherInfo = (SearchThreadInfo*) threadInfo;
 
+    moveCharInThread(&searcherInfo->mvChar, 3, 0);
+
     sem_wait(searcherInfo->noDeleter);
     sem_post(searcherInfo->noDeleter);
     searcherInfo->searcherSwitch->lock(searcherInfo->noSearcher);
+
+    moveLine(searcherInfo, 2, -2);
 
     traverseList(&searcherInfo->mvChar, searcherInfo->list, searcherInfo->c, searcherInfo->width,
                  [&searcherInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {scharListEl->schar.fgColor = searcherInfo->mvChar.schar.fgColor;});
@@ -123,12 +164,15 @@ void* searcher_thread(void* threadInfo) {
 void* inserter_thread(void* threadInfo) {
     auto* inserterInfo = (InsertThreadInfo*) threadInfo;
 
-    sem_wait(inserterInfo->noDeleter);
-    sem_post(inserterInfo->noDeleter);
-
-    inserterInfo->inserterSwitch->lock(inserterInfo->noInserter);
+    moveCharInThread(&inserterInfo->mvChar, 2, 0);
 
     pthread_mutex_lock(inserterInfo->mutex);
+
+    sem_wait(inserterInfo->noDeleter);
+    sem_post(inserterInfo->noDeleter);
+    sem_wait(inserterInfo->noInserter);
+
+    moveLine(inserterInfo, 3, -2);
 
     traverseList(&inserterInfo->mvChar, inserterInfo->list, inserterInfo->c, inserterInfo->width,
                  [&inserterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl){
@@ -139,17 +183,22 @@ void* inserter_thread(void* threadInfo) {
     });
     inserterInfo->c = '\0';
 
+    sem_post(inserterInfo->noInserter);
     pthread_mutex_unlock(inserterInfo->mutex);
-    inserterInfo->inserterSwitch->unlock(inserterInfo->noInserter);
 
     return nullptr;
 }
 
 void* deleter_thread(void* threadInfo) {
     auto* deleterInfo = (DeleterThreadInfo*) threadInfo;
+
+    moveCharInThread(&deleterInfo->mvChar, 1, 0);
+
     deleterInfo->deleterSwitch->lock(deleterInfo->noDeleter);
     sem_wait(deleterInfo->noSearcher);
     sem_wait(deleterInfo->noInserter);
+
+    moveLine(deleterInfo, 4, -2);
 
     traverseList(&deleterInfo->mvChar, deleterInfo->list, deleterInfo->c, deleterInfo->width,
                  [&deleterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {
@@ -172,17 +221,21 @@ class SearchInsertDeleteDemo: public aen::ASCIIEngine {
     SearchThreadInfo* searcherList{};
     LightSwitch searcherLightSwitch{};
     sem_t noSearcher{};
+    pthread_mutex_t searcherCountMutex = PTHREAD_MUTEX_INITIALIZER;
+    int searcherCount = 0;
 
     InsertThreadInfo* inserterList{};
-    pthread_mutex_t inserterMutex{};
-    LightSwitch inserterLightSwitch{};
+    pthread_mutex_t inserterMutex = PTHREAD_MUTEX_INITIALIZER;
+//    LightSwitch inserterLightSwitch{};
     sem_t noInserter{};
+    pthread_mutex_t inserterCountMutex = PTHREAD_MUTEX_INITIALIZER;
+    int inserterCount = 0;
 
     DeleterThreadInfo* deleterList{};
     LightSwitch deleterLightSwitch{};
     sem_t noDeleter{};
-
-
+    pthread_mutex_t deleterCountMutex = PTHREAD_MUTEX_INITIALIZER;
+    int deleterCount = 0;
 
 protected:
 
@@ -301,80 +354,106 @@ protected:
 
     }
 
-    void drawObjects(){
+    void drawObjects() {
         ThreadObject* lists[3] = {searcherList, inserterList, deleterList};
         for (int i = 0; i < 3; i++) {
-            ThreadObject* prev = nullptr;
             for (ThreadObject* current = lists[i]; current != nullptr;){
                 // delete in case thread is finished
                 if (current->c == '\0') {
                     ThreadObject* temp = current;
                     current = current->next;
-                    if (prev == nullptr) {
+                    if (temp->prev == nullptr) {
                         if(i == 0) searcherList = static_cast<SearchThreadInfo *>(current);
                         else if(i == 1) inserterList = static_cast<InsertThreadInfo *>(current);
                         else if(i == 2) deleterList = static_cast<DeleterThreadInfo *>(current);
                         lists[i] = current;
                     }
-                    else prev->next = current;
+                    else temp->prev->next = current;
+
+                    if (current != nullptr) temp->next->prev = temp->prev;
+
                     free(temp);
                     continue;
                 }
                 Draw(current->mvChar.x, current->mvChar.y, current->mvChar.schar.c, current->mvChar.schar.fgColor);
-                prev = current;
                 current = current->next;
             }
         }
     }
 
     void createSearcher() {
+        pthread_mutex_lock(&searcherCountMutex);
+        searcherCount++;
 
         auto* info = (SearchThreadInfo*) malloc(sizeof(SearchThreadInfo));
-        info->mvChar = {5, 4, {'S', static_cast<COLOR>(randomInt(31, 36))}};
+        info->mvChar = {0, 5 + searcherCount, {'S', static_cast<COLOR>(randomInt(31, 36))}};
         info->list = &list;
         info->c = 'l';
         info->width = getGameWidth();
         info->height = getGameHeight();
+
         info->next = searcherList;
+        info->prev = nullptr;
+        if (searcherList != nullptr) searcherList->prev = info;
         searcherList = info;
 
         info->searcherSwitch = &searcherLightSwitch;
         info->noSearcher = &noSearcher;
         info->noDeleter = &noDeleter;
 
+        info->countMutex = &searcherCountMutex;
+        info->count = &searcherCount;
+
         pthread_create(&info->thread, nullptr, &searcher_thread, (void *) info);
+        pthread_mutex_unlock(&searcherCountMutex);
 
     }
 
-    void createInserter() {
+    void createInserter(){
+        pthread_mutex_lock(&inserterCountMutex);
+        inserterCount++;
 
         auto* info = (InsertThreadInfo*) malloc(sizeof(InsertThreadInfo));
-        info->mvChar = {5, 4, {'I', static_cast<COLOR>(randomInt(31, 36))}};
+        info->mvChar = {0, 5 + inserterCount, {'I', static_cast<COLOR>(randomInt(31, 36))}};
         info->list = &list;
         info->c = 'c';
         info->width = getGameWidth();
         info->height = getGameHeight();
-        info->next = inserterList;
-        info->mutex = &inserterMutex;
         info->a = char('a' + randomInt(0, 25));
+
+        info->next = inserterList;
+        info->prev = nullptr;
+        if (inserterList != nullptr) inserterList->prev = info;
         inserterList = info;
 
-        info->inserterSwitch = &inserterLightSwitch;
+        info->mutex = &inserterMutex;
+//        info->inserterSwitch = &inserterLightSwitch;
         info->noInserter = &noInserter;
         info->noDeleter = &noDeleter;
 
+        info->countMutex = &inserterCountMutex;
+        info->count = &inserterCount;
+
         pthread_create(&info->thread, nullptr, &inserter_thread, (void *) info);
+        pthread_mutex_unlock(&inserterCountMutex);
+
 
     }
 
     void createDeleter() {
+        pthread_mutex_lock(&deleterCountMutex);
+        deleterCount++;
+
         auto* info = (DeleterThreadInfo*) malloc(sizeof(DeleterThreadInfo));
-        info->mvChar = {5, 4, {'D', static_cast<COLOR>(randomInt(31, 36))}};
+        info->mvChar = {0, 5 + deleterCount, {'D', static_cast<COLOR>(randomInt(31, 36))}};
         info->list = &list;
         info->c = 'n';
         info->width = getGameWidth();
         info->height = getGameHeight();
+
         info->next = deleterList;
+        info->prev = nullptr;
+        if (deleterList != nullptr) deleterList->prev = info;
         deleterList = info;
 
         info->deleterSwitch = &deleterLightSwitch;
@@ -382,10 +461,12 @@ protected:
         info->noInserter = &noInserter;
         info->noDeleter = &noDeleter;
 
+        info->countMutex = &deleterCountMutex;
+        info->count = &deleterCount;
 
-        info->noDeleter = &noDeleter;
 
         pthread_create(&info->thread, nullptr, &deleter_thread, (void *) info);
+        pthread_mutex_unlock(&deleterCountMutex);
 
     }
 
@@ -399,20 +480,25 @@ protected:
     }
 
     bool OnDestroy() override {
-        ThreadObject* lists[3] = {searcherList, inserterList, deleterList};
-        for (auto& objList : lists) {
-            ThreadObject *prev;
-            for (ThreadObject *current = objList; current != nullptr;) {
-                prev = current;
-                current = current->next;
-                free(prev);
-            }
-        }
+//        ThreadObject* lists[3] = {searcherList, inserterList, deleterList};
+//        for (auto& objList : lists) {
+//            ThreadObject *prev;
+//            for (ThreadObject *current = objList; current != nullptr;) {
+//                prev = current;
+//                current = current->next;
+//                free(prev);
+//            }
+//        }
         freeList();
+        sem_destroy(&noSearcher);
+        sem_destroy(&noInserter);
         sem_destroy(&noDeleter);
+
+        pthread_mutex_destroy(&searcherCountMutex);
+        pthread_mutex_destroy(&inserterCountMutex);
+        pthread_mutex_destroy(&deleterCountMutex);
         return true;
     }
-
 
 };
 
