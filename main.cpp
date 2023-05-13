@@ -1,5 +1,4 @@
 #include "ASCIIEngine.h"
-#include <string>
 #include <random>
 #include <functional>
 #include <pthread.h>
@@ -57,14 +56,14 @@ inline int randomInt(int min, int max) {
     return dis_int(gen);
 }
 
-void traverseList(MovingChar* mvChar, ScreenCharList** list, char charToFind, int width, const std::function<void(ScreenCharList*, ScreenCharList*)>& handle) {
-    int count = 0, listCount = 0;
+void traverseList(MovingChar* mvChar, ScreenCharList** list, char* charToFind, int width, const std::function<void(ScreenCharList*, ScreenCharList*)>& handle) {
+    int count = 0, listCount;
     int state = 0, prevState = 0;
     ScreenCharList* prev = nullptr;
     for (ScreenCharList* current = *list; current != nullptr;) {
         count++;
         auto& schar = current->schar;
-        if (schar.c == charToFind) {
+        if (schar.c == *charToFind) {
             handle(current, prev);
             break;
         }
@@ -106,6 +105,7 @@ void traverseList(MovingChar* mvChar, ScreenCharList** list, char charToFind, in
             default:
                 break;
         }
+        // verifica se alguém foi adicionado antes da posição atual, e se foi, anda um frame extra
         listCount = 1;
         for (ScreenCharList* cur = *list; cur != current; cur = cur->next) listCount++;
         if (listCount == count) {
@@ -114,6 +114,8 @@ void traverseList(MovingChar* mvChar, ScreenCharList** list, char charToFind, in
         }
 
     }
+    usleep(THREAD_FRAME_TIME);
+    *charToFind = '\0';
 }
 
 void moveCharInThread(MovingChar* mvChar, int x, int y){
@@ -129,6 +131,7 @@ void moveCharInThread(MovingChar* mvChar, int x, int y){
     }
 }
 
+// move a fila de threads de um certo tipo que estão esperando
 void moveLine(ThreadObject* obj, int x, int y) {
     pthread_mutex_lock(obj->countMutex);
 
@@ -149,13 +152,13 @@ void* searcher_thread(void* threadInfo) {
 
     sem_wait(searcherInfo->noDeleter);
     sem_post(searcherInfo->noDeleter);
+
     searcherInfo->searcherSwitch->lock(searcherInfo->noSearcher);
 
     moveLine(searcherInfo, 2, -2);
 
-    traverseList(&searcherInfo->mvChar, searcherInfo->list, searcherInfo->c, searcherInfo->width,
+    traverseList(&searcherInfo->mvChar, searcherInfo->list, &searcherInfo->c, searcherInfo->width,
                  [&searcherInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {scharListEl->schar.fgColor = searcherInfo->mvChar.schar.fgColor;});
-    searcherInfo->c = '\0';
 
     searcherInfo->searcherSwitch->unlock(searcherInfo->noSearcher);
     return nullptr;
@@ -174,14 +177,13 @@ void* inserter_thread(void* threadInfo) {
 
     moveLine(inserterInfo, 3, -2);
 
-    traverseList(&inserterInfo->mvChar, inserterInfo->list, inserterInfo->c, inserterInfo->width,
+    traverseList(&inserterInfo->mvChar, inserterInfo->list, &inserterInfo->c, inserterInfo->width,
                  [&inserterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl){
         auto* newElement = (ScreenCharList*) malloc(sizeof(ScreenCharList));
         newElement->schar = {inserterInfo->a, inserterInfo->mvChar.schar.fgColor};
         newElement->next = scharListEl->next;
         scharListEl->next = newElement;
     });
-    inserterInfo->c = '\0';
 
     sem_post(inserterInfo->noInserter);
     pthread_mutex_unlock(inserterInfo->mutex);
@@ -200,7 +202,7 @@ void* deleter_thread(void* threadInfo) {
 
     moveLine(deleterInfo, 4, -2);
 
-    traverseList(&deleterInfo->mvChar, deleterInfo->list, deleterInfo->c, deleterInfo->width,
+    traverseList(&deleterInfo->mvChar, deleterInfo->list, &deleterInfo->c, deleterInfo->width,
                  [&deleterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {
         if (prevEl == nullptr)
             *deleterInfo->list = scharListEl->next;
@@ -208,7 +210,6 @@ void* deleter_thread(void* threadInfo) {
             prevEl->next = scharListEl->next;
         free(scharListEl);
     });
-    deleterInfo->c = '\0';
 
     sem_post(deleterInfo->noSearcher);
     sem_post(deleterInfo->noInserter);
@@ -273,7 +274,6 @@ protected:
     bool GameLoop(float fDelta, char cKey) override {
         FillScreen();
 
-//        if (cKey != '\0' && cKey != '\t' && cKey != '\n') list.push_front({cKey});
         switch (cKey)
         {
             case 's':
@@ -290,7 +290,6 @@ protected:
             default:
                 break;
         }
-
 
         drawList();
         drawObjects();
@@ -366,7 +365,6 @@ protected:
                         if(i == 0) searcherList = static_cast<SearchThreadInfo *>(current);
                         else if(i == 1) inserterList = static_cast<InsertThreadInfo *>(current);
                         else if(i == 2) deleterList = static_cast<DeleterThreadInfo *>(current);
-                        lists[i] = current;
                     }
                     else temp->prev->next = current;
 
@@ -437,7 +435,6 @@ protected:
         pthread_create(&info->thread, nullptr, &inserter_thread, (void *) info);
         pthread_mutex_unlock(&inserterCountMutex);
 
-
     }
 
     void createDeleter() {
@@ -503,7 +500,6 @@ protected:
 };
 
 int main(){
-//    std::string profileID = "f5f27596-afd0-420a-8aae-8220491dc05b";
     SearchInsertDeleteDemo engine;
     engine.ConstructConsole(160, 45, "");
     engine.Run();
