@@ -8,7 +8,6 @@ class LightSwitch
 private:
     int m_counter = 0;
     pthread_mutex_t m_mutex;
-    pthread_cond_t count_is_zero;
 
 public:
     LightSwitch();

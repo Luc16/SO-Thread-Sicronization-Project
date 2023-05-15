@@ -114,7 +114,7 @@ void traverseList(MovingChar* mvChar, ScreenCharList** list, char* charToFind, i
         }
 
     }
-    usleep(THREAD_FRAME_TIME);
+    usleep(2*THREAD_FRAME_TIME);
     *charToFind = '\0';
 }
 
@@ -182,7 +182,8 @@ void* inserter_thread(void* threadInfo) {
         auto* newElement = (ScreenCharList*) malloc(sizeof(ScreenCharList));
         newElement->schar = {inserterInfo->a, inserterInfo->mvChar.schar.fgColor};
         newElement->next = scharListEl->next;
-        scharListEl->next = newElement;
+        if (scharListEl->next != nullptr)
+            scharListEl->next = newElement;
     });
 
     sem_post(inserterInfo->noInserter);
@@ -219,6 +220,7 @@ void* deleter_thread(void* threadInfo) {
 
 class SearchInsertDeleteDemo: public aen::ASCIIEngine {
     ScreenCharList* list{};
+
     SearchThreadInfo* searcherList{};
     LightSwitch searcherLightSwitch{};
     sem_t noSearcher{};
@@ -285,7 +287,7 @@ protected:
             case 'd':
                 createDeleter();
                 break;
-            case 27:
+            case 27: // ESC
                 return false;
             default:
                 break;
@@ -362,9 +364,9 @@ protected:
                     ThreadObject* temp = current;
                     current = current->next;
                     if (temp->prev == nullptr) {
-                        if(i == 0) searcherList = static_cast<SearchThreadInfo *>(current);
-                        else if(i == 1) inserterList = static_cast<InsertThreadInfo *>(current);
-                        else if(i == 2) deleterList = static_cast<DeleterThreadInfo *>(current);
+                        if(i == 0) searcherList = (SearchThreadInfo *)(current);
+                        else if(i == 1) inserterList = (InsertThreadInfo *)(current);
+                        else if(i == 2) deleterList = (DeleterThreadInfo *)(current);
                     }
                     else temp->prev->next = current;
 
@@ -373,7 +375,9 @@ protected:
                     free(temp);
                     continue;
                 }
+
                 Draw(current->mvChar.x, current->mvChar.y, current->mvChar.schar.c, current->mvChar.schar.fgColor);
+//                Draw(current->mvChar.x + 1, current->mvChar.y, current->c, current->mvChar.schar.fgColor);
                 current = current->next;
             }
         }
@@ -404,7 +408,6 @@ protected:
 
         pthread_create(&info->thread, nullptr, &searcher_thread, (void *) info);
         pthread_mutex_unlock(&searcherCountMutex);
-
     }
 
     void createInserter(){

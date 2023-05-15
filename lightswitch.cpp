@@ -1,7 +1,5 @@
 #include "lightswitch.h"
 
-#include <iostream>
-
 LightSwitch::LightSwitch(){
     pthread_mutex_init(&m_mutex, nullptr);
 }
