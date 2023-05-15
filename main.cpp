@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include "lightswitch.h"
 
-#define THREAD_FRAME_TIME 20000//30000
+int THREAD_FRAME_TIME = 20000;
 
 struct ScreenCharList {
     ScreenChar schar{};
@@ -72,7 +72,7 @@ void traverseList(MovingChar* mvChar, ScreenCharList** list, char* charToFind, i
                 for (int i = 0; i < ((prevState == 2) ? 4: 5); i++) {
                     usleep(THREAD_FRAME_TIME);
                     mvChar->x += 1;
-                    if (mvChar->x >= width - 4) {
+                    if (mvChar->x >= width - 19) {
                         state = 1;
                         for (int j = 0; j < 5; j++) {
                             usleep(THREAD_FRAME_TIME);
@@ -91,7 +91,7 @@ void traverseList(MovingChar* mvChar, ScreenCharList** list, char* charToFind, i
                     usleep(THREAD_FRAME_TIME);
                     mvChar->x -= 1;
                 }
-                if (mvChar->x - 4 <= 5) {
+                if (mvChar->x - 20 <= 4) {
                     state = 2;
                     mvChar->x += 1;
                 }
@@ -147,15 +147,14 @@ void moveLine(ThreadObject* obj, int x, int y) {
 
 void* searcher_thread(void* threadInfo) {
     auto* searcherInfo = (SearchThreadInfo*) threadInfo;
-
-    moveCharInThread(&searcherInfo->mvChar, 3, 0);
+    moveCharInThread(&searcherInfo->mvChar, 12, 0);
 
     sem_wait(searcherInfo->noDeleter);
     sem_post(searcherInfo->noDeleter);
 
     searcherInfo->searcherSwitch->lock(searcherInfo->noSearcher);
 
-    moveLine(searcherInfo, 2, -2);
+    moveLine(searcherInfo, 8, -2);
 
     traverseList(&searcherInfo->mvChar, searcherInfo->list, &searcherInfo->c, searcherInfo->width,
                  [&searcherInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {scharListEl->schar.fgColor = searcherInfo->mvChar.schar.fgColor;});
@@ -167,7 +166,7 @@ void* searcher_thread(void* threadInfo) {
 void* inserter_thread(void* threadInfo) {
     auto* inserterInfo = (InsertThreadInfo*) threadInfo;
 
-    moveCharInThread(&inserterInfo->mvChar, 2, 0);
+    moveCharInThread(&inserterInfo->mvChar, 7, 0);
 
     pthread_mutex_lock(inserterInfo->mutex);
 
@@ -175,7 +174,7 @@ void* inserter_thread(void* threadInfo) {
     sem_post(inserterInfo->noDeleter);
     sem_wait(inserterInfo->noInserter);
 
-    moveLine(inserterInfo, 3, -2);
+    moveLine(inserterInfo, 13, -2);
 
     traverseList(&inserterInfo->mvChar, inserterInfo->list, &inserterInfo->c, inserterInfo->width,
                  [&inserterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl){
@@ -195,13 +194,13 @@ void* inserter_thread(void* threadInfo) {
 void* deleter_thread(void* threadInfo) {
     auto* deleterInfo = (DeleterThreadInfo*) threadInfo;
 
-    moveCharInThread(&deleterInfo->mvChar, 1, 0);
+    moveCharInThread(&deleterInfo->mvChar, 2, 0);
 
     deleterInfo->deleterSwitch->lock(deleterInfo->noDeleter);
     sem_wait(deleterInfo->noSearcher);
     sem_wait(deleterInfo->noInserter);
 
-    moveLine(deleterInfo, 4, -2);
+    moveLine(deleterInfo, 18, -2);
 
     traverseList(&deleterInfo->mvChar, deleterInfo->list, &deleterInfo->c, deleterInfo->width,
                  [&deleterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {
@@ -220,6 +219,7 @@ void* deleter_thread(void* threadInfo) {
 
 class SearchInsertDeleteDemo: public aen::ASCIIEngine {
     ScreenCharList* list{};
+    int speed = 1000000/THREAD_FRAME_TIME;
 
     SearchThreadInfo* searcherList{};
     LightSwitch searcherLightSwitch{};
@@ -287,12 +287,21 @@ protected:
             case 'd':
                 createDeleter();
                 break;
+            case '+':
+                speed += 1;
+                THREAD_FRAME_TIME = 1000000/speed;
+                break;
+            case '-':
+                speed -= 1;
+                THREAD_FRAME_TIME = 1000000/speed;
+                break;
             case 27: // ESC
                 return false;
             default:
                 break;
         }
 
+        DrawString(100, 1, "Speed: " + std::to_string(speed) + " (type + ou - to control)");
         drawList();
         drawObjects();
 
@@ -300,7 +309,7 @@ protected:
     }
 
     void drawList(){
-        int x = 5;
+        int x = 20;
         int y = 5;
 
         int state = 0, prevState = 0;
@@ -315,7 +324,7 @@ protected:
                         x += 4;
                     }
 
-                    if (x + 5 >= getGameWidth() - 3) {
+                    if (x + 20 >= getGameWidth() - 3) {
                         prevState = 0;
                         state = 1;
                     }
@@ -341,7 +350,7 @@ protected:
                         DrawString(x, y, " <- ");
                     }
 
-                    if (x - 5 <= 3) {
+                    if (x - 20 <= 3) {
                         prevState = 2;
                         state = 1;
                     }
@@ -377,7 +386,9 @@ protected:
                 }
 
                 Draw(current->mvChar.x, current->mvChar.y, current->mvChar.schar.c, current->mvChar.schar.fgColor);
-//                Draw(current->mvChar.x + 1, current->mvChar.y, current->c, current->mvChar.schar.fgColor);
+                char str[4] = {'(', ' ', ')', '\0'};
+                str[1] = current->c;
+                DrawString(current->mvChar.x + 1, current->mvChar.y, str, current->mvChar.schar.fgColor);
                 current = current->next;
             }
         }
