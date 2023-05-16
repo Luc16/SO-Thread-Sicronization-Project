@@ -382,7 +382,7 @@ protected:
                     else temp->prev->next = current;
 
                     if (current != nullptr) temp->next->prev = temp->prev;
-
+                    pthread_join(temp->thread, nullptr);
                     free(temp);
                     continue;
                 }
