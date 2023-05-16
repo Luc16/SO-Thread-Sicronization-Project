@@ -32,6 +32,8 @@ struct SearchThreadInfo: public ThreadObject{
     LightSwitch* searcherSwitch{};
     sem_t* noSearcher{};
     sem_t* noDeleter{};
+    pthread_mutex_t* searcherSyncLineMutex{};
+
 };
 
 struct InsertThreadInfo: public ThreadObject {
@@ -54,6 +56,10 @@ inline int randomInt(int min, int max) {
     static std::mt19937 gen(rd());
     std::uniform_int_distribution<int> dis_int(min, max);
     return dis_int(gen);
+}
+
+inline char randomLetter() {
+    return char('a' + randomInt(0, 25));
 }
 
 void traverseList(MovingChar* mvChar, ScreenCharList** list, char* charToFind, int width, const std::function<void(ScreenCharList*, ScreenCharList*)>& handle) {
@@ -135,28 +141,31 @@ void moveCharInThread(MovingChar* mvChar, int x, int y){
 void moveLine(ThreadObject* obj, int x, int y) {
     pthread_mutex_lock(obj->countMutex);
 
-    moveCharInThread(&obj->mvChar, x, y);
-
     for (ThreadObject* cur = obj->prev; cur != nullptr; cur = cur->prev){
         cur->mvChar.y--;
     }
 
     (*obj->count)--;
     pthread_mutex_unlock(obj->countMutex);
+
+    moveCharInThread(&obj->mvChar, x, y);
 }
 
 void* searcher_thread(void* threadInfo) {
     auto* searcherInfo = (SearchThreadInfo*) threadInfo;
     moveCharInThread(&searcherInfo->mvChar, 12, 0);
 
+
+    pthread_mutex_lock(searcherInfo->searcherSyncLineMutex);
+
     sem_wait(searcherInfo->noDeleter);
     sem_post(searcherInfo->noDeleter);
 
     searcherInfo->searcherSwitch->lock(searcherInfo->noSearcher);
 
-    searcherInfo->mvChar.x += 8;
-    searcherInfo->mvChar.y -= 2;
-    moveLine(searcherInfo, 0, 0);
+
+    moveLine(searcherInfo, 8, -2);
+    pthread_mutex_unlock(searcherInfo->searcherSyncLineMutex);
 
     traverseList(&searcherInfo->mvChar, searcherInfo->list, &searcherInfo->c, searcherInfo->width,
                  [&searcherInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {scharListEl->schar.fgColor = searcherInfo->mvChar.schar.fgColor;});
@@ -220,13 +229,17 @@ void* deleter_thread(void* threadInfo) {
 }
 
 class SearchInsertDeleteDemo: public aen::ASCIIEngine {
+    enum SelectedInput {SEARCH_TARGET, INSERT_TARGET, INSERT_LETTER, DELETE_TARGET, NONE};
+    
     ScreenCharList* list{};
     int speed = 1000000/THREAD_FRAME_TIME;
+    SelectedInput selected = NONE;
 
     SearchThreadInfo* searcherList{};
     LightSwitch searcherLightSwitch{};
     sem_t noSearcher{};
     pthread_mutex_t searcherCountMutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t searcherSyncLineMutex = PTHREAD_MUTEX_INITIALIZER;
     int searcherCount = 0;
 
     InsertThreadInfo* inserterList{};
@@ -235,6 +248,7 @@ class SearchInsertDeleteDemo: public aen::ASCIIEngine {
     sem_t noInserter{};
     pthread_mutex_t inserterCountMutex = PTHREAD_MUTEX_INITIALIZER;
     int inserterCount = 0;
+    char inserterTarget = '\0';
 
     DeleterThreadInfo* deleterList{};
     LightSwitch deleterLightSwitch{};
@@ -275,33 +289,68 @@ protected:
         return true;
     }
 
-    bool GameLoop(float fDelta, char cKey) override {
+    bool GameLoop(float fDelta, char cKey) override {    
         FillScreen();
 
-        switch (cKey)
-        {
-            case 's':
-                createSearcher();
-                break;
-            case 'i':
-                createInserter();
-                break;
-            case 'd':
-                createDeleter();
-                break;
-            case '+':
-                speed = std::min(speed + 1, 10000);
-                THREAD_FRAME_TIME = 1000000/speed;
-                break;
-            case '-':
-                speed = std::max(speed - 1, 1);
-                THREAD_FRAME_TIME = 1000000/speed;
-                break;
-            case 27: // ESC
-                return false;
-            default:
-                break;
+        if (cKey != '\0' && (cKey < 'a' || cKey > 'z')){
+            selected = NONE;
         }
+
+        if (cKey != '\0') {
+            switch (selected){
+                case SEARCH_TARGET:
+                    createSearcher(cKey);
+                    selected = NONE;
+                    break;
+                case INSERT_TARGET:
+                    inserterTarget = cKey;
+                    selected = INSERT_LETTER;
+                    break;             
+                case INSERT_LETTER:
+                    createInserter(inserterTarget, cKey);
+                    selected = NONE;
+                    break;
+                case DELETE_TARGET:
+                    createDeleter(cKey);
+                    selected = NONE;
+                    break;
+                default:
+                    switch (cKey) {
+                        case 's':
+                            createSearcher(randomLetter());
+                            break;
+                        case 'i':
+                            createInserter(randomLetter(), randomLetter());
+                            break;
+                        case 'd':
+                            createDeleter(randomLetter());
+                            break;
+                        case 'S':
+                            selected = SEARCH_TARGET;
+                            break;
+                        case 'I':
+                            selected = INSERT_TARGET;
+                            break;
+                        case 'D':
+                            selected = DELETE_TARGET;
+                            break;
+                        case '+':
+                            speed = std::min(speed + 1, 10000);
+                            THREAD_FRAME_TIME = 1000000/speed;
+                            break;
+                        case '-':
+                            speed = std::max(speed - 1, 1);
+                            THREAD_FRAME_TIME = 1000000/speed;
+                            break;
+                        case 27: // ESC
+                            return false;
+                        default:
+                            break;
+                    }
+                    break;
+            }
+        }
+
 
         DrawString(100, 1, "Speed: " + std::to_string(speed) + " (type + ou - to control)");
         drawList();
@@ -396,14 +445,14 @@ protected:
         }
     }
 
-    void createSearcher() {
+    void createSearcher(char c) {
         pthread_mutex_lock(&searcherCountMutex);
         searcherCount++;
 
         auto* info = (SearchThreadInfo*) malloc(sizeof(SearchThreadInfo));
         info->mvChar = {0, 5 + searcherCount, {'S', static_cast<COLOR>(randomInt(31, 36))}};
         info->list = &list;
-        info->c = 'l';
+        info->c = c;
         info->width = getGameWidth();
         info->height = getGameHeight();
 
@@ -412,6 +461,7 @@ protected:
         if (searcherList != nullptr) searcherList->prev = info;
         searcherList = info;
 
+        info->searcherSyncLineMutex = &searcherSyncLineMutex;
         info->searcherSwitch = &searcherLightSwitch;
         info->noSearcher = &noSearcher;
         info->noDeleter = &noDeleter;
@@ -423,17 +473,17 @@ protected:
         pthread_mutex_unlock(&searcherCountMutex);
     }
 
-    void createInserter(){
+    void createInserter(char c, char a){
         pthread_mutex_lock(&inserterCountMutex);
         inserterCount++;
 
         auto* info = (InsertThreadInfo*) malloc(sizeof(InsertThreadInfo));
         info->mvChar = {0, 5 + inserterCount, {'I', static_cast<COLOR>(randomInt(31, 36))}};
         info->list = &list;
-        info->c = 'c';
+        info->c = c;
         info->width = getGameWidth();
         info->height = getGameHeight();
-        info->a = char('a' + randomInt(0, 25));
+        info->a = a;
 
         info->next = inserterList;
         info->prev = nullptr;
@@ -453,14 +503,14 @@ protected:
 
     }
 
-    void createDeleter() {
+    void createDeleter(char c) {
         pthread_mutex_lock(&deleterCountMutex);
         deleterCount++;
 
         auto* info = (DeleterThreadInfo*) malloc(sizeof(DeleterThreadInfo));
         info->mvChar = {0, 5 + deleterCount, {'D', static_cast<COLOR>(randomInt(31, 36))}};
         info->list = &list;
-        info->c = 'n';
+        info->c = c;
         info->width = getGameWidth();
         info->height = getGameHeight();
 
@@ -493,7 +543,7 @@ protected:
     }
 
     bool OnDestroy() override {
-        THREAD_FRAME_TIME = 1;
+        THREAD_FRAME_TIME = 0;
         ThreadObject* lists[3] = {deleterList, inserterList, searcherList};
         for (auto& objList : lists) {
             for (ThreadObject *current = objList; current != nullptr; current = current->next) {
@@ -530,9 +580,3 @@ int main(){
     std::cout << sizeof(ScreenCharList) << '\n';
 
  }
-
-
-
-
-
-
