@@ -154,7 +154,9 @@ void* searcher_thread(void* threadInfo) {
 
     searcherInfo->searcherSwitch->lock(searcherInfo->noSearcher);
 
-    moveLine(searcherInfo, 8, -2);
+    searcherInfo->mvChar.x += 8;
+    searcherInfo->mvChar.y -= 2;
+    moveLine(searcherInfo, 0, 0);
 
     traverseList(&searcherInfo->mvChar, searcherInfo->list, &searcherInfo->c, searcherInfo->width,
                  [&searcherInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {scharListEl->schar.fgColor = searcherInfo->mvChar.schar.fgColor;});
@@ -288,11 +290,11 @@ protected:
                 createDeleter();
                 break;
             case '+':
-                speed += 1;
+                speed = std::min(speed + 1, 10000);
                 THREAD_FRAME_TIME = 1000000/speed;
                 break;
             case '-':
-                speed -= 1;
+                speed = std::max(speed - 1, 1);
                 THREAD_FRAME_TIME = 1000000/speed;
                 break;
             case 27: // ESC
@@ -491,15 +493,21 @@ protected:
     }
 
     bool OnDestroy() override {
-//        ThreadObject* lists[3] = {searcherList, inserterList, deleterList};
-//        for (auto& objList : lists) {
-//            ThreadObject *prev;
-//            for (ThreadObject *current = objList; current != nullptr;) {
-//                prev = current;
-//                current = current->next;
-//                free(prev);
-//            }
-//        }
+        THREAD_FRAME_TIME = 1;
+        ThreadObject* lists[3] = {deleterList, inserterList, searcherList};
+        for (auto& objList : lists) {
+            for (ThreadObject *current = objList; current != nullptr; current = current->next) {
+                pthread_join(current->thread, nullptr);
+            }
+            ThreadObject *prev;
+            for (ThreadObject *current = objList; current != nullptr;) {
+                prev = current;
+                current = current->next;
+                free(prev);
+            }
+        }
+
+
         freeList();
         sem_destroy(&noSearcher);
         sem_destroy(&noInserter);
@@ -507,6 +515,7 @@ protected:
 
         pthread_mutex_destroy(&searcherCountMutex);
         pthread_mutex_destroy(&inserterCountMutex);
+        pthread_mutex_destroy(&inserterMutex);
         pthread_mutex_destroy(&deleterCountMutex);
         return true;
     }
@@ -517,6 +526,8 @@ int main(){
     SearchInsertDeleteDemo engine;
     engine.ConstructConsole(160, 45, "");
     engine.Run();
+
+    std::cout << sizeof(ScreenCharList) << '\n';
 
  }
 
