@@ -342,11 +342,11 @@ protected:
                             message = "Delete _";
                             break;
                         case '+':
-                            speed = std::min(speed + 1, 10000);
+                            speed = std::min(speed + 10, 1000);
                             THREAD_FRAME_TIME = 1000000/speed;
                             break;
                         case '-':
-                            speed = std::max(speed - 1, 1);
+                            speed = std::max(speed - 10, 10);
                             THREAD_FRAME_TIME = 1000000/speed;
                             break;
                         case 27: // ESC
