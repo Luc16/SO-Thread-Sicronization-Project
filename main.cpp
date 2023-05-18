@@ -268,20 +268,8 @@ protected:
     }
 
     bool OnCreate() override {
-        insertListElement('a');
-        insertListElement('d');
-        insertListElement('n');
-        insertListElement('i');
-        insertListElement('l');
-        insertListElement('a');
-        insertListElement('n');
-        for (uint32_t i = 0; i < 100; i++){
-            if (i == 80){
-                insertListElement('c');
-                continue;
-            }
-            insertListElement('a');
-
+        for (uint32_t i = 0; i < 120; i++){
+            insertListElement(randomLetter());
         }
 
         sem_init(&noSearcher, 1, 1);
