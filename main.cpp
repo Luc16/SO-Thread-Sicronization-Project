@@ -3,6 +3,7 @@
 #include <functional>
 #include <pthread.h>
 #include "lightswitch.h"
+#include <string>
 
 int THREAD_FRAME_TIME = 20000;
 
@@ -230,7 +231,8 @@ void* deleter_thread(void* threadInfo) {
 
 class SearchInsertDeleteDemo: public aen::ASCIIEngine {
     enum SelectedInput {SEARCH_TARGET, INSERT_TARGET, INSERT_LETTER, DELETE_TARGET, NONE};
-    
+    std::string message = "";
+
     ScreenCharList* list{};
     int speed = 1000000/THREAD_FRAME_TIME;
     SelectedInput selected = NONE;
@@ -248,7 +250,7 @@ class SearchInsertDeleteDemo: public aen::ASCIIEngine {
     sem_t noInserter{};
     pthread_mutex_t inserterCountMutex = PTHREAD_MUTEX_INITIALIZER;
     int inserterCount = 0;
-    char inserterTarget = '\0';
+    char inserterLetter = '\0';
 
     DeleterThreadInfo* deleterList{};
     LightSwitch deleterLightSwitch{};
@@ -296,43 +298,60 @@ protected:
             selected = NONE;
         }
 
+        char target = '\0';
+        char letter = '\0';
+
         if (cKey != '\0') {
             switch (selected){
                 case SEARCH_TARGET:
                     createSearcher(cKey);
                     selected = NONE;
+                    message = "Search " + std::string(1, cKey);
                     break;
-                case INSERT_TARGET:
-                    inserterTarget = cKey;
-                    selected = INSERT_LETTER;
-                    break;             
                 case INSERT_LETTER:
-                    createInserter(inserterTarget, cKey);
+                    inserterLetter = cKey;
+                    selected = INSERT_TARGET;
+                    message = "Insert " + std::string(1, inserterLetter) + " after _";
+                    break;             
+                case INSERT_TARGET:
+                    createInserter(inserterLetter, cKey);
                     selected = NONE;
+                    message = "Insert " + std::string(1, inserterLetter) + " after " + std::string(1, cKey);
                     break;
                 case DELETE_TARGET:
                     createDeleter(cKey);
                     selected = NONE;
+                    message = "Delete " + std::string(1, cKey);
                     break;
                 default:
                     switch (cKey) {
                         case 's':
-                            createSearcher(randomLetter());
+                            target = randomLetter();
+                            createSearcher(target);
+                            message = "Search " + std::string(1, target);
                             break;
                         case 'i':
-                            createInserter(randomLetter(), randomLetter());
+                            target = randomLetter();
+                            letter = randomLetter();
+                            createInserter(letter, target);
+                            message = "Insert " + std::string(1, letter) + " after " + std::string(1, target);
                             break;
                         case 'd':
-                            createDeleter(randomLetter());
+                            target = randomLetter();
+                            createDeleter(target);
+                            message = "Delete " + std::string(1, target);
                             break;
                         case 'S':
                             selected = SEARCH_TARGET;
+                            message = "Search _";
                             break;
                         case 'I':
-                            selected = INSERT_TARGET;
+                            selected = INSERT_LETTER;
+                            message = "Insert _ after _ ";
                             break;
                         case 'D':
                             selected = DELETE_TARGET;
+                            message = "Delete _";
                             break;
                         case '+':
                             speed = std::min(speed + 1, 10000);
@@ -351,7 +370,7 @@ protected:
             }
         }
 
-
+        DrawString(20, 1, message);
         DrawString(100, 1, "Speed: " + std::to_string(speed) + " (type + ou - to control)");
         drawList();
         drawObjects();
@@ -473,7 +492,7 @@ protected:
         pthread_mutex_unlock(&searcherCountMutex);
     }
 
-    void createInserter(char c, char a){
+    void createInserter(char a, char c){
         pthread_mutex_lock(&inserterCountMutex);
         inserterCount++;
 
