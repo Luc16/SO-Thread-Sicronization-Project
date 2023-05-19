@@ -65,6 +65,10 @@ inline char randomLetter() {
     return char('a' + randomInt(0, 25));
 }
 
+/*
+ * Animates the corresponding thread operator passing through the list and looking for the target char
+ * When the char is found the handle function is called
+ * */
 void traverseList(MovingChar* mvChar, ScreenCharList** list, char* charToFind, int width, const std::function<void(ScreenCharList*, ScreenCharList*)>& handle) {
     int count = 0, listCount;
     int state = 0, prevState = 0;
@@ -123,7 +127,7 @@ void traverseList(MovingChar* mvChar, ScreenCharList** list, char* charToFind, i
         }
 
     }
-    usleep(2*THREAD_FRAME_TIME);
+    usleep(5*THREAD_FRAME_TIME);
     *charToFind = '\0';
 }
 
@@ -140,7 +144,9 @@ void moveCharInThread(MovingChar* mvChar, int x, int y){
     }
 }
 
-// move a fila de threads de um certo tipo que estão esperando
+/*
+ * Move all the thread objects up the line and moves the first object to the beginning of the list
+ * */
 void moveLine(ThreadObject* obj, int x, int y) {
     pthread_mutex_lock(obj->countMutex);
 
@@ -158,9 +164,11 @@ void* searcher_thread(void* threadInfo) {
     auto* searcherInfo = (SearchThreadInfo*) threadInfo;
     moveCharInThread(&searcherInfo->mvChar, 12, 0);
 
+    // lock so that only one searcher can get out of line at a time
     pthread_mutex_lock(searcherInfo->searcherSyncLineMutex);
 
     if (prioritizeDeleters) {
+        // turnstile to wait for deleters
         sem_wait(searcherInfo->noDeleter);
         sem_post(searcherInfo->noDeleter);
     }
@@ -185,8 +193,10 @@ void* inserter_thread(void* threadInfo) {
     pthread_mutex_lock(inserterInfo->mutex);
 
     if (prioritizeDeleters){
+        // turnstile to wait for deleters
         sem_wait(inserterInfo->noDeleter);
         sem_post(inserterInfo->noDeleter);
+        // wait for other inserters to finish
         sem_wait(inserterInfo->noInserter);
     }
 
@@ -194,6 +204,7 @@ void* inserter_thread(void* threadInfo) {
 
     traverseList(&inserterInfo->mvChar, inserterInfo->list, &inserterInfo->c, inserterInfo->width,
                  [&inserterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl){
+                     // inserts element in the main list
                      auto* newElement = (ScreenCharList*) malloc(sizeof(ScreenCharList));
                      newElement->schar = {inserterInfo->a, inserterInfo->mvChar.schar.fgColor};
                      newElement->next = scharListEl->next;
@@ -218,18 +229,15 @@ void* deleter_thread(void* threadInfo) {
         sem_wait(deleterInfo->noInserter);
     } else {
         sem_wait(deleterInfo->noDeleter);
-
         sem_wait(deleterInfo->noSearcher);
-        sem_post(deleterInfo->noSearcher);
-
         sem_wait(deleterInfo->noInserter);
-        sem_post(deleterInfo->noInserter);
     }
 
     moveLine(deleterInfo, 18, -2);
 
     traverseList(&deleterInfo->mvChar, deleterInfo->list, &deleterInfo->c, deleterInfo->width,
                  [&deleterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {
+                     // deletes an element from the main list
                      if (prevEl == nullptr)
                          *deleterInfo->list = scharListEl->next;
                      else
@@ -241,8 +249,12 @@ void* deleter_thread(void* threadInfo) {
         sem_post(deleterInfo->noSearcher);
         sem_post(deleterInfo->noInserter);
         deleterInfo->deleterSwitch->unlock(deleterInfo->noDeleter);
-    } else
+    } else {
+        sem_post(deleterInfo->noInserter);
+        sem_post(deleterInfo->noSearcher);
+        usleep(100); // wait for other threads to wake up
         sem_post(deleterInfo->noDeleter);
+    }
 
 
     return nullptr;
@@ -302,6 +314,7 @@ protected:
     bool GameLoop(float fDelta, char cKey) override {
         FillScreen();
 
+        // resets selected if invalid key pressed
         if (cKey != '\0' && (cKey < 'a' || cKey > 'z')){
             selected = NO_TARGET;
         }
