@@ -38,7 +38,7 @@ struct SearchThreadInfo: public ThreadObject{
 };
 
 struct InsertThreadInfo: public ThreadObject {
-//    LightSwitch* inserterSwitch{};
+    LightSwitch* inserterSwitch{};
     sem_t* noInserter{};
     sem_t* noDeleter{};
     pthread_mutex_t* mutex{};
@@ -159,8 +159,9 @@ void* searcher_thread(void* threadInfo) {
 
     pthread_mutex_lock(searcherInfo->searcherSyncLineMutex);
 
-    sem_wait(searcherInfo->noDeleter);
-    sem_post(searcherInfo->noDeleter);
+    // NOTE: pra que isso?
+    /* sem_wait(searcherInfo->noDeleter); */
+    /* sem_post(searcherInfo->noDeleter); */
 
     searcherInfo->searcherSwitch->lock(searcherInfo->noSearcher);
 
@@ -177,61 +178,62 @@ void* searcher_thread(void* threadInfo) {
 
 void* inserter_thread(void* threadInfo) {
     auto* inserterInfo = (InsertThreadInfo*) threadInfo;
-
     moveCharInThread(&inserterInfo->mvChar, 7, 0);
 
+    inserterInfo->inserterSwitch->lock(inserterInfo->noInserter);
     pthread_mutex_lock(inserterInfo->mutex);
-
-    sem_wait(inserterInfo->noDeleter);
-    sem_post(inserterInfo->noDeleter);
-    sem_wait(inserterInfo->noInserter);
 
     moveLine(inserterInfo, 13, -2);
 
     traverseList(&inserterInfo->mvChar, inserterInfo->list, &inserterInfo->c, inserterInfo->width,
                  [&inserterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl){
-        auto* newElement = (ScreenCharList*) malloc(sizeof(ScreenCharList));
-        newElement->schar = {inserterInfo->a, inserterInfo->mvChar.schar.fgColor};
-        newElement->next = scharListEl->next;
-        if (scharListEl->next != nullptr)
-            scharListEl->next = newElement;
-    });
+                     auto* newElement = (ScreenCharList*) malloc(sizeof(ScreenCharList));
+                     newElement->schar = {inserterInfo->a, inserterInfo->mvChar.schar.fgColor};
+                     newElement->next = scharListEl->next;
+                     if (scharListEl->next != nullptr)
+                         scharListEl->next = newElement;
+                 });
 
-    sem_post(inserterInfo->noInserter);
     pthread_mutex_unlock(inserterInfo->mutex);
+    inserterInfo->inserterSwitch->unlock(inserterInfo->noInserter);
 
     return nullptr;
 }
 
 void* deleter_thread(void* threadInfo) {
     auto* deleterInfo = (DeleterThreadInfo*) threadInfo;
-
     moveCharInThread(&deleterInfo->mvChar, 2, 0);
 
-    deleterInfo->deleterSwitch->lock(deleterInfo->noDeleter);
+    sem_wait(deleterInfo->noDeleter);
+
     sem_wait(deleterInfo->noSearcher);
+    sem_post(deleterInfo->noSearcher);
+
     sem_wait(deleterInfo->noInserter);
+    sem_post(deleterInfo->noInserter);
 
     moveLine(deleterInfo, 18, -2);
 
     traverseList(&deleterInfo->mvChar, deleterInfo->list, &deleterInfo->c, deleterInfo->width,
                  [&deleterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {
-        if (prevEl == nullptr)
-            *deleterInfo->list = scharListEl->next;
-        else
-            prevEl->next = scharListEl->next;
-        free(scharListEl);
-    });
+                     if (prevEl == nullptr)
+                         *deleterInfo->list = scharListEl->next;
+                     else
+                         prevEl->next = scharListEl->next;
+                     free(scharListEl);
+                 });
 
-    sem_post(deleterInfo->noSearcher);
-    sem_post(deleterInfo->noInserter);
-    deleterInfo->deleterSwitch->unlock(deleterInfo->noDeleter);
+    sem_post(deleterInfo->noDeleter);
+
+
     return nullptr;
 }
 
 class SearchInsertDeleteDemo: public aen::ASCIIEngine {
     enum SelectedInput {SEARCH_TARGET, INSERT_TARGET, INSERT_LETTER, DELETE_TARGET, NONE};
     std::string message = "";
+
+    bool prioritizeDeleters = true;
 
     ScreenCharList* list{};
     int speed = 1000000/THREAD_FRAME_TIME;
@@ -246,7 +248,7 @@ class SearchInsertDeleteDemo: public aen::ASCIIEngine {
 
     InsertThreadInfo* inserterList{};
     pthread_mutex_t inserterMutex = PTHREAD_MUTEX_INITIALIZER;
-//    LightSwitch inserterLightSwitch{};
+    LightSwitch inserterLightSwitch{};
     sem_t noInserter{};
     pthread_mutex_t inserterCountMutex = PTHREAD_MUTEX_INITIALIZER;
     int inserterCount = 0;
@@ -279,7 +281,7 @@ protected:
         return true;
     }
 
-    bool GameLoop(float fDelta, char cKey) override {    
+    bool GameLoop(float fDelta, char cKey) override {
         FillScreen();
 
         if (cKey != '\0' && (cKey < 'a' || cKey > 'z')){
@@ -300,7 +302,7 @@ protected:
                     inserterLetter = cKey;
                     selected = INSERT_TARGET;
                     message = "Insert " + std::string(1, inserterLetter) + " after _";
-                    break;             
+                    break;
                 case INSERT_TARGET:
                     createInserter(inserterLetter, cKey);
                     selected = NONE;
@@ -498,7 +500,7 @@ protected:
         inserterList = info;
 
         info->mutex = &inserterMutex;
-//        info->inserterSwitch = &inserterLightSwitch;
+        info->inserterSwitch = &inserterLightSwitch;
         info->noInserter = &noInserter;
         info->noDeleter = &noDeleter;
 
@@ -586,4 +588,4 @@ int main(){
 
     std::cout << sizeof(ScreenCharList) << '\n';
 
- }
+}
