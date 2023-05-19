@@ -24,6 +24,7 @@ multithreaded programming for the 2023.1 Operating Systems class at Unicamp.
 </details>
 
 ## Demo
+[Project demo](https://github.com/Luc16/SO-Thread-Sicronization-Project/assets/65264536/2dfaa963-5480-4d99-aa0e-c4cde2ea2dda)
 
 ## The problem
 
