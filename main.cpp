@@ -6,7 +6,7 @@
 #include <string>
 
 int THREAD_FRAME_TIME = 20000;
-bool prioritizeDeleters = true;
+bool prioritizeDeleters = false;
 
 
 struct ScreenCharList {
@@ -414,6 +414,10 @@ protected:
         return true;
     }
 
+    /*
+     * Draw the linked list that is that is travelled by ThreadObjects. The
+     * list is drawn as a "zig-zag", from the top to bottom.
+     * */
     void drawList(){
         int x = 20;
         int y = 5;
@@ -470,6 +474,15 @@ protected:
 
     }
 
+    /*
+     * Draw all ThreadObjects (searchers, inserters, and deleters), with
+     * their representative character and target
+     *
+     * e.g. I(a) is an inserter with target 'a'
+     *      S(b) is a searcher with target 'b'
+     *      D(c) is a deleter with target 'c'
+     *
+     * */
     void drawObjects() {
         ThreadObject* lists[3] = {searcherList, inserterList, deleterList};
         for (int i = 0; i < 3; i++) {
@@ -500,6 +513,9 @@ protected:
         }
     }
 
+    /*
+     * Create a SeacherThreadInfo object and adds it to the searchers queue (searcherList)
+     * */
     void createSearcher(char c) {
         pthread_mutex_lock(&searcherCountMutex);
         searcherCount++;
@@ -528,6 +544,9 @@ protected:
         pthread_mutex_unlock(&searcherCountMutex);
     }
 
+    /*
+     * Create an InserterThreadInfo object and adds it to the inserters queue (inserterList)
+     * */
     void createInserter(char a, char c){
         pthread_mutex_lock(&inserterCountMutex);
         inserterCount++;
@@ -558,6 +577,9 @@ protected:
 
     }
 
+    /*
+     * Create a DeleterThreadInfo object and adds it to the deleters queue (deleterList)
+     * */
     void createDeleter(char c) {
         pthread_mutex_lock(&deleterCountMutex);
         deleterCount++;
