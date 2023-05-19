@@ -6,6 +6,8 @@
 #include <string>
 
 int THREAD_FRAME_TIME = 20000;
+bool prioritizeDeleters = true;
+
 
 struct ScreenCharList {
     ScreenChar schar{};
@@ -156,15 +158,14 @@ void* searcher_thread(void* threadInfo) {
     auto* searcherInfo = (SearchThreadInfo*) threadInfo;
     moveCharInThread(&searcherInfo->mvChar, 12, 0);
 
-
     pthread_mutex_lock(searcherInfo->searcherSyncLineMutex);
 
-    // NOTE: pra que isso?
-    /* sem_wait(searcherInfo->noDeleter); */
-    /* sem_post(searcherInfo->noDeleter); */
+    if (prioritizeDeleters) {
+        sem_wait(searcherInfo->noDeleter);
+        sem_post(searcherInfo->noDeleter);
+    }
 
     searcherInfo->searcherSwitch->lock(searcherInfo->noSearcher);
-
 
     moveLine(searcherInfo, 8, -2);
     pthread_mutex_unlock(searcherInfo->searcherSyncLineMutex);
@@ -180,8 +181,14 @@ void* inserter_thread(void* threadInfo) {
     auto* inserterInfo = (InsertThreadInfo*) threadInfo;
     moveCharInThread(&inserterInfo->mvChar, 7, 0);
 
-    inserterInfo->inserterSwitch->lock(inserterInfo->noInserter);
+    if (!prioritizeDeleters) inserterInfo->inserterSwitch->lock(inserterInfo->noInserter);
     pthread_mutex_lock(inserterInfo->mutex);
+
+    if (prioritizeDeleters){
+        sem_wait(inserterInfo->noDeleter);
+        sem_post(inserterInfo->noDeleter);
+        sem_wait(inserterInfo->noInserter);
+    }
 
     moveLine(inserterInfo, 13, -2);
 
@@ -194,8 +201,9 @@ void* inserter_thread(void* threadInfo) {
                          scharListEl->next = newElement;
                  });
 
+    if (prioritizeDeleters) sem_post(inserterInfo->noInserter);
     pthread_mutex_unlock(inserterInfo->mutex);
-    inserterInfo->inserterSwitch->unlock(inserterInfo->noInserter);
+    if (!prioritizeDeleters) inserterInfo->inserterSwitch->unlock(inserterInfo->noInserter);
 
     return nullptr;
 }
@@ -204,13 +212,19 @@ void* deleter_thread(void* threadInfo) {
     auto* deleterInfo = (DeleterThreadInfo*) threadInfo;
     moveCharInThread(&deleterInfo->mvChar, 2, 0);
 
-    sem_wait(deleterInfo->noDeleter);
+    if (prioritizeDeleters) {
+        deleterInfo->deleterSwitch->lock(deleterInfo->noDeleter);
+        sem_wait(deleterInfo->noSearcher);
+        sem_wait(deleterInfo->noInserter);
+    } else {
+        sem_wait(deleterInfo->noDeleter);
 
-    sem_wait(deleterInfo->noSearcher);
-    sem_post(deleterInfo->noSearcher);
+        sem_wait(deleterInfo->noSearcher);
+        sem_post(deleterInfo->noSearcher);
 
-    sem_wait(deleterInfo->noInserter);
-    sem_post(deleterInfo->noInserter);
+        sem_wait(deleterInfo->noInserter);
+        sem_post(deleterInfo->noInserter);
+    }
 
     moveLine(deleterInfo, 18, -2);
 
@@ -223,21 +237,25 @@ void* deleter_thread(void* threadInfo) {
                      free(scharListEl);
                  });
 
-    sem_post(deleterInfo->noDeleter);
+    if (prioritizeDeleters) {
+        sem_post(deleterInfo->noSearcher);
+        sem_post(deleterInfo->noInserter);
+        deleterInfo->deleterSwitch->unlock(deleterInfo->noDeleter);
+    } else
+        sem_post(deleterInfo->noDeleter);
 
 
     return nullptr;
 }
 
 class SearchInsertDeleteDemo: public aen::ASCIIEngine {
-    enum SelectedInput {SEARCH_TARGET, INSERT_TARGET, INSERT_LETTER, DELETE_TARGET, NONE};
-    std::string message = "";
-
-    bool prioritizeDeleters = true;
+    enum SelectedInput {SEARCH_TARGET, INSERT_TARGET, INSERT_LETTER, DELETE_TARGET, NO_TARGET};
+    std::string message;
+    bool priorityToggle = false;
 
     ScreenCharList* list{};
     int speed = 1000000/THREAD_FRAME_TIME;
-    SelectedInput selected = NONE;
+    SelectedInput selected = NO_TARGET;
 
     SearchThreadInfo* searcherList{};
     LightSwitch searcherLightSwitch{};
@@ -285,17 +303,17 @@ protected:
         FillScreen();
 
         if (cKey != '\0' && (cKey < 'a' || cKey > 'z')){
-            selected = NONE;
+            selected = NO_TARGET;
         }
 
-        char target = '\0';
-        char letter = '\0';
+        char target;
+        char letter;
 
         if (cKey != '\0') {
             switch (selected){
                 case SEARCH_TARGET:
                     createSearcher(cKey);
-                    selected = NONE;
+                    selected = NO_TARGET;
                     message = "Search " + std::string(1, cKey);
                     break;
                 case INSERT_LETTER:
@@ -305,12 +323,12 @@ protected:
                     break;
                 case INSERT_TARGET:
                     createInserter(inserterLetter, cKey);
-                    selected = NONE;
+                    selected = NO_TARGET;
                     message = "Insert " + std::string(1, inserterLetter) + " after " + std::string(1, cKey);
                     break;
                 case DELETE_TARGET:
                     createDeleter(cKey);
-                    selected = NONE;
+                    selected = NO_TARGET;
                     message = "Delete " + std::string(1, cKey);
                     break;
                 default:
@@ -343,6 +361,9 @@ protected:
                             selected = DELETE_TARGET;
                             message = "Delete _";
                             break;
+                        case ' ':
+                            priorityToggle = true;
+                            break;
                         case '+':
                             speed = std::min(speed + 10, 1000);
                             THREAD_FRAME_TIME = 1000000/speed;
@@ -359,6 +380,18 @@ protected:
                     break;
             }
         }
+
+        if (priorityToggle) {
+            DrawString((prioritizeDeleters) ? 92 : 96, 0, "Waiting to toggle...", FG_CYAN);
+
+            if (searcherList == nullptr && inserterList == nullptr && deleterList == nullptr) {
+                prioritizeDeleters = !prioritizeDeleters;
+                priorityToggle = false;
+            }
+        }
+
+        if (prioritizeDeleters) DrawString(70, 0, "PRIORITY MODE: Delete", FG_CYAN);
+        else DrawString(66, 0, "PRIORITY MODE: Search/Insert", FG_CYAN);
 
         DrawString(20, 1, message);
         DrawString(100, 1, "Speed: " + std::to_string(speed) + " (type + ou - to control)");
