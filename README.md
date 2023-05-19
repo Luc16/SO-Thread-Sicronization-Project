@@ -47,7 +47,7 @@ Since there's no starvation-proof solution for this problem, the best we can do
 is prioritizing whichever operation is known to happen the least. This takes
 care of avoiding deadlocks in most practical cases. It is still possible to
 guarantee mutual exclusion without deadlocks, though! To do that we used the
-following synchronization primitives (besides locks and semaphores):
+following synchronization primitives (besides mutex locks and semaphores):
 
 ### Lightswitch
 
@@ -57,6 +57,11 @@ searchers use their own lightswitch (`inserterSwitch` and `searcherSwitch`) to
 signal that deleters can enter the list when "the light is off".
 
 ### Turnstile
+
+When the operations of wait and post of a semaphore are called in quick succession
+its called a <b>Turnstile</b>. This pattern is beneficial when prioritizing `deleters`
+to stop the activities of both `searchers` and `inserters` upon their arrival, 
+while allowing unrestricted movement for the latter two in other cases.
 
 ## Building and running
 
@@ -97,7 +102,6 @@ The program has the following keybindings:
 ## References
 
 - [Little Book of Semaphores](https://greenteapress.com/wp/semaphores/)
-- ASCIIEngine reference goes here
 
 ## License
 
