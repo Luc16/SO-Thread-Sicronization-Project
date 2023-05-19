@@ -38,7 +38,7 @@ struct SearchThreadInfo: public ThreadObject{
 };
 
 struct InsertThreadInfo: public ThreadObject {
-//    LightSwitch* inserterSwitch{};
+    LightSwitch* inserterSwitch{};
     sem_t* noInserter{};
     sem_t* noDeleter{};
     pthread_mutex_t* mutex{};
@@ -159,8 +159,9 @@ void* searcher_thread(void* threadInfo) {
 
     pthread_mutex_lock(searcherInfo->searcherSyncLineMutex);
 
-    sem_wait(searcherInfo->noDeleter);
-    sem_post(searcherInfo->noDeleter);
+    // NOTE: pra que isso?
+    /* sem_wait(searcherInfo->noDeleter); */
+    /* sem_post(searcherInfo->noDeleter); */
 
     searcherInfo->searcherSwitch->lock(searcherInfo->noSearcher);
 
@@ -177,14 +178,10 @@ void* searcher_thread(void* threadInfo) {
 
 void* inserter_thread(void* threadInfo) {
     auto* inserterInfo = (InsertThreadInfo*) threadInfo;
-
     moveCharInThread(&inserterInfo->mvChar, 7, 0);
 
+    inserterInfo->inserterSwitch->lock(inserterInfo->noInserter);
     pthread_mutex_lock(inserterInfo->mutex);
-
-    sem_wait(inserterInfo->noDeleter);
-    sem_post(inserterInfo->noDeleter);
-    sem_wait(inserterInfo->noInserter);
 
     moveLine(inserterInfo, 13, -2);
 
@@ -197,20 +194,18 @@ void* inserter_thread(void* threadInfo) {
             scharListEl->next = newElement;
     });
 
-    sem_post(inserterInfo->noInserter);
     pthread_mutex_unlock(inserterInfo->mutex);
+    inserterInfo->inserterSwitch->unlock(inserterInfo->noInserter);
 
     return nullptr;
 }
 
 void* deleter_thread(void* threadInfo) {
     auto* deleterInfo = (DeleterThreadInfo*) threadInfo;
-
     moveCharInThread(&deleterInfo->mvChar, 2, 0);
 
-    deleterInfo->deleterSwitch->lock(deleterInfo->noDeleter);
-    sem_wait(deleterInfo->noSearcher);
     sem_wait(deleterInfo->noInserter);
+    sem_wait(deleterInfo->noSearcher);
 
     moveLine(deleterInfo, 18, -2);
 
@@ -225,13 +220,14 @@ void* deleter_thread(void* threadInfo) {
 
     sem_post(deleterInfo->noSearcher);
     sem_post(deleterInfo->noInserter);
-    deleterInfo->deleterSwitch->unlock(deleterInfo->noDeleter);
     return nullptr;
 }
 
 class SearchInsertDeleteDemo: public aen::ASCIIEngine {
     enum SelectedInput {SEARCH_TARGET, INSERT_TARGET, INSERT_LETTER, DELETE_TARGET, NONE};
     std::string message = "";
+
+    bool prioritizeDeleters = true;
 
     ScreenCharList* list{};
     int speed = 1000000/THREAD_FRAME_TIME;
@@ -246,7 +242,7 @@ class SearchInsertDeleteDemo: public aen::ASCIIEngine {
 
     InsertThreadInfo* inserterList{};
     pthread_mutex_t inserterMutex = PTHREAD_MUTEX_INITIALIZER;
-//    LightSwitch inserterLightSwitch{};
+    LightSwitch inserterLightSwitch{};
     sem_t noInserter{};
     pthread_mutex_t inserterCountMutex = PTHREAD_MUTEX_INITIALIZER;
     int inserterCount = 0;
@@ -498,7 +494,7 @@ protected:
         inserterList = info;
 
         info->mutex = &inserterMutex;
-//        info->inserterSwitch = &inserterLightSwitch;
+        info->inserterSwitch = &inserterLightSwitch;
         info->noInserter = &noInserter;
         info->noDeleter = &noDeleter;
 
