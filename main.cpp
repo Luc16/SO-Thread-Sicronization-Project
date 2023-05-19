@@ -187,12 +187,12 @@ void* inserter_thread(void* threadInfo) {
 
     traverseList(&inserterInfo->mvChar, inserterInfo->list, &inserterInfo->c, inserterInfo->width,
                  [&inserterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl){
-        auto* newElement = (ScreenCharList*) malloc(sizeof(ScreenCharList));
-        newElement->schar = {inserterInfo->a, inserterInfo->mvChar.schar.fgColor};
-        newElement->next = scharListEl->next;
-        if (scharListEl->next != nullptr)
-            scharListEl->next = newElement;
-    });
+                     auto* newElement = (ScreenCharList*) malloc(sizeof(ScreenCharList));
+                     newElement->schar = {inserterInfo->a, inserterInfo->mvChar.schar.fgColor};
+                     newElement->next = scharListEl->next;
+                     if (scharListEl->next != nullptr)
+                         scharListEl->next = newElement;
+                 });
 
     pthread_mutex_unlock(inserterInfo->mutex);
     inserterInfo->inserterSwitch->unlock(inserterInfo->noInserter);
@@ -204,22 +204,28 @@ void* deleter_thread(void* threadInfo) {
     auto* deleterInfo = (DeleterThreadInfo*) threadInfo;
     moveCharInThread(&deleterInfo->mvChar, 2, 0);
 
-    sem_wait(deleterInfo->noInserter);
+    sem_wait(deleterInfo->noDeleter);
+
     sem_wait(deleterInfo->noSearcher);
+    sem_post(deleterInfo->noSearcher);
+
+    sem_wait(deleterInfo->noInserter);
+    sem_post(deleterInfo->noInserter);
 
     moveLine(deleterInfo, 18, -2);
 
     traverseList(&deleterInfo->mvChar, deleterInfo->list, &deleterInfo->c, deleterInfo->width,
                  [&deleterInfo](ScreenCharList* scharListEl, ScreenCharList* prevEl) {
-        if (prevEl == nullptr)
-            *deleterInfo->list = scharListEl->next;
-        else
-            prevEl->next = scharListEl->next;
-        free(scharListEl);
-    });
+                     if (prevEl == nullptr)
+                         *deleterInfo->list = scharListEl->next;
+                     else
+                         prevEl->next = scharListEl->next;
+                     free(scharListEl);
+                 });
 
-    sem_post(deleterInfo->noSearcher);
-    sem_post(deleterInfo->noInserter);
+    sem_post(deleterInfo->noDeleter);
+
+
     return nullptr;
 }
 
@@ -275,7 +281,7 @@ protected:
         return true;
     }
 
-    bool GameLoop(float fDelta, char cKey) override {    
+    bool GameLoop(float fDelta, char cKey) override {
         FillScreen();
 
         if (cKey != '\0' && (cKey < 'a' || cKey > 'z')){
@@ -296,7 +302,7 @@ protected:
                     inserterLetter = cKey;
                     selected = INSERT_TARGET;
                     message = "Insert " + std::string(1, inserterLetter) + " after _";
-                    break;             
+                    break;
                 case INSERT_TARGET:
                     createInserter(inserterLetter, cKey);
                     selected = NONE;
@@ -582,4 +588,4 @@ int main(){
 
     std::cout << sizeof(ScreenCharList) << '\n';
 
- }
+}
