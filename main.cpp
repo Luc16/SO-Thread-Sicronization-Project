@@ -229,8 +229,8 @@ void* deleter_thread(void* threadInfo) {
         sem_wait(deleterInfo->noInserter);
     } else {
         sem_wait(deleterInfo->noDeleter);
-        sem_wait(deleterInfo->noSearcher);
         sem_wait(deleterInfo->noInserter);
+        sem_wait(deleterInfo->noSearcher);
     }
 
     moveLine(deleterInfo, 18, -2);
@@ -250,8 +250,8 @@ void* deleter_thread(void* threadInfo) {
         sem_post(deleterInfo->noInserter);
         deleterInfo->deleterSwitch->unlock(deleterInfo->noDeleter);
     } else {
-        sem_post(deleterInfo->noInserter);
         sem_post(deleterInfo->noSearcher);
+        sem_post(deleterInfo->noInserter);
         usleep(100); // wait for other threads to wake up
         sem_post(deleterInfo->noDeleter);
     }
